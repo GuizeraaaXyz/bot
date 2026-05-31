@@ -1,7 +1,7 @@
 {
   "name": "minecraft-bot-manager",
   "version": "1.0.0",
-  "description": "Minecraft Bot Manager for Render",
+  "description": "Minecraft Bot Manager",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
