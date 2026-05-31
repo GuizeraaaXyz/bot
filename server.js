@@ -214,10 +214,22 @@ function createBot(botId) {
   botData.bot = bot;
 
   bot.on('resourcePack', (pack) => {
-    console.log(`[${botData.config.nome}] 📦 Resource pack detectado`);
-    try {
-      bot.acceptResourcePack();
-    } catch(e) {}
+      console.log(`[${botData.config.nome}] 📦 Resource pack detectado`);
+      try {
+          // Aceitar o resource pack
+          bot.acceptResourcePack();
+          
+          // Aguardar download (até 30 segundos)
+          setTimeout(() => {
+              console.log(`[${botData.config.nome}] ✅ Resource pack aceito`);
+          }, 3000);
+      } catch(e) {
+          console.log(`[${botData.config.nome}] ⚠️ Erro ao aceitar resource pack: ${e.message}`);
+          // Tentar alternativa
+          try {
+              bot.declineResourcePack();
+          } catch(e2) {}
+      }
   });
 
   bot.once('spawn', () => {
