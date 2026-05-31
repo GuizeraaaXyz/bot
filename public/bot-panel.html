@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Bot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="botTitle">🤖 Painel do Bot</h1>
+            <button onclick="closeWindow()" class="btn btn-secondary">❌ Fechar</button>
+        </header>
+
+        <div class="bot-status-panel">
+            <div class="status-card">
+                <h3>Status</h3>
+                <div id="botStatus" class="status offline">⛔ Offline</div>
+            </div>
+            
+            <div class="actions-card">
+                <h3>Controles</h3>
+                <div class="button-group">
+                    <button id="startBtn" class="btn btn-success">▶️ Iniciar Bot</button>
+                    <button id="stopBtn" class="btn btn-danger">⏹️ Parar Bot</button>
+                    <button id="toggleAutoBtn" class="btn btn-primary">🔄 Alternar Auto</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="commands-section">
+            <h2>📝 Comandos Rápidos</h2>
+            <div class="quick-commands">
+                <input type="text" id="quickCommand" placeholder="Digite um comando...">
+                <button id="sendQuickCmd" class="btn btn-primary">Enviar</button>
+            </div>
+        </div>
+
+        <div class="sequence-section">
+            <h2>⚙️ Sequência de Comandos</h2>
+            <div id="commandsList"></div>
+            <button id="addCommandBtn" class="btn btn-secondary">➕ Adicionar Comando</button>
+            <button id="saveSequenceBtn" class="btn btn-primary">💾 Salvar Sequência</button>
+        </div>
+
+        <div class="logs-section">
+            <h2>📋 Logs</h2>
+            <div id="logs" class="logs-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const botId = urlParams.get('id');
+        let botConfig = null;
+
+        function addLog(message) {
+            const logsDiv = document.getElementById('logs');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            
+            // Limitar a 100 logs
+            while (logsDiv.children.length > 100) {
+                logsDiv.removeChild(logsDiv.firstChild);
+            }
+        }
+
+        function loadBotConfig() {
+            fetch(`/api/bot/${botId}`)
+                .then(res => res.json())
+                .then(data => {
+                    botConfig = data;
+                    document.getElementById('botTitle').textContent = `🤖 ${data.nome}`;
+                    updateStatus(data.running ? 'online' : 'offline');
+                    renderCommands();
+                })
+                .catch(err => addLog(`❌ Erro ao carregar config: ${err.message}`));
+        }
+
+        function updateStatus(status) {
+            const statusDiv = document.getElementById('botStatus');
+            const statusText = {
+                'online': '✅ Online',
+                'offline': '⛔ Offline',
+                'connecting': '🔄 Conectando',
+                'kicked': '🚫 Kickado'
+            }[status] || status;
+            
+            statusDiv.textContent = statusText;
+            statusDiv.className = `status ${status}`;
+        }
+
+        function renderCommands() {
+            const container = document.getElementById('commandsList');
+            if (!botConfig || !botConfig.commands) return;
+            
+            container.innerHTML = botConfig.commands.map((cmd, index) => `
+                <div class="command-item">
+                    <input type="checkbox" ${cmd.enabled ? 'checked' : ''} data-index="${index}" class="cmd-enabled">
+                    <input type="text" value="${cmd.command.replace('{senha}', botConfig.senha || '{senha}')}" 
+                           data-index="${index}" class="cmd-command" placeholder="Comando">
+                    <input type="number" value="${cmd.minDelay}" data-index="${index}" class="cmd-minDelay" placeholder="Min delay" style="width: 80px;">
+                    <input type="number" value="${cmd.maxDelay}" data-index="${index}" class="cmd-maxDelay" placeholder="Max delay" style="width: 80px;">
+                    <button onclick="removeCommand(${index})" class="btn-danger-small">❌</button>
+                </div>
+            `).join('');
+            
+            // Adicionar event listeners
+            document.querySelectorAll('.cmd-enabled').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.index);
+                    botConfig.commands[idx].enabled = e.target.checked;
+                });
+            });
+            
+            document.querySelectorAll('.cmd-command').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.index);
+                    botConfig.commands[idx].command = e.target.value;
+                });
+            });
+            
+            document.querySelectorAll('.cmd-minDelay').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.index);
+                    botConfig.commands[idx].minDelay = parseInt(e.target.value);
+                });
+            });
+            
+            document.querySelectorAll('.cmd-maxDelay').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.index);
+                    botConfig.commands[idx].maxDelay = parseInt(e.target.value);
+                });
+            });
+        }
+
+        function removeCommand(index) {
+            botConfig.commands.splice(index, 1);
+            renderCommands();
+        }
+
+        function saveSequence() {
+            fetch(`/api/bot/${botId}/commandSequence`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ commands: botConfig.commands })
+            }).then(() => addLog('✅ Sequência salva!'));
+        }
+
+        function sendCommand() {
+            const cmd = document.getElementById('quickCommand').value;
+            if (!cmd) return;
+            
+            fetch(`/api/bot/${botId}/command`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmd })
+            }).then(() => {
+                addLog(`💬 Comando enviado: ${cmd}`);
+                document.getElementById('quickCommand').value = '';
+            });
+        }
+
+        function startBot() {
+            fetch(`/api/bot/${botId}/start`, { method: 'POST' })
+                .then(() => addLog('▶️ Iniciando bot...'));
+        }
+
+        function stopBot() {
+            fetch(`/api/bot/${botId}/stop`, { method: 'POST' })
+                .then(() => addLog('⏹️ Parando bot...'));
+        }
+
+        function toggleAuto() {
+            fetch(`/api/bot/${botId}/toggleAuto`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => addLog(`🔄 Auto-sequence: ${data.autoSequence ? 'ON' : 'OFF'}`));
+        }
+
+        function closeWindow() {
+            window.close();
+        }
+
+        // Event listeners
+        document.getElementById('startBtn').onclick = startBot;
+        document.getElementById('stopBtn').onclick = stopBot;
+        document.getElementById('toggleAutoBtn').onclick = toggleAuto;
+        document.getElementById('sendQuickCmd').onclick = sendCommand;
+        document.getElementById('saveSequenceBtn').onclick = saveSequence;
+        document.getElementById('addCommandBtn').onclick = () => {
+            if (!botConfig.commands) botConfig.commands = [];
+            botConfig.commands.push({
+                command: '/comando',
+                enabled: true,
+                minDelay: 4,
+                maxDelay: 8,
+                afterDelay: 5,
+                afterDelayMax: 10
+            });
+            renderCommands();
+        };
+        
+        document.getElementById('quickCommand').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendCommand();
+        });
+
+        // Inicialização
+        loadBotConfig();
+        
+        // Atualizar status periodicamente
+        setInterval(() => {
+            fetch('/api/bots')
+                .then(res => res.json())
+                .then(bots => {
+                    const bot = bots.find(b => b.id === botId);
+                    if (bot) updateStatus(bot.status);
+                });
+        }, 3000);
+    </script>
+</body>
+</html>
