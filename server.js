@@ -10,7 +10,7 @@ const io = new Server(server);
 app.use(express.static('public'));
 app.use(express.json());
 
-// Configuração inicial dos bots (antigo bots.json)
+// Configuração inicial dos bots
 const INITIAL_BOTS = {
   "1778975620952": {
     config: {
@@ -74,6 +74,12 @@ const INITIAL_BOTS = {
 // Armazenamento em memória
 let bots = new Map();
 
+// Função para delay aleatório entre segundos
+function randomDelay(minSeconds, maxSeconds) {
+  const delay = Math.floor(Math.random() * (maxSeconds - minSeconds + 1) + minSeconds) * 1000;
+  return delay;
+}
+
 // Função para inicializar bots
 function initializeBots() {
   for (const [id, botData] of Object.entries(INITIAL_BOTS)) {
@@ -87,25 +93,6 @@ function initializeBots() {
     });
   }
   console.log(`✅ Inicializados ${bots.size} bots em memória`);
-}
-
-// Função para salvar bots (agora apenas log, sem arquivo)
-function saveBots() {
-  const botsToSave = {};
-  for (const [id, botData] of bots) {
-    botsToSave[id] = {
-      config: botData.config,
-      status: botData.status
-    };
-  }
-  console.log(`💾 Estado dos bots salvo em memória (${bots.size} bots)`);
-  // Opcional: retornar para uso em APIs
-  return botsToSave;
-}
-
-// Função auxiliar para delay humano
-function humanDelay(minSec, maxSec) {
-  return Math.floor(Math.random() * (maxSec - minSec + 1) + minSec) * 1000;
 }
 
 function destroyBot(botId) {
@@ -136,7 +123,7 @@ async function sendCommand(botData, cmd, minDelay, maxDelay, logMsg) {
   let finalCmd = cmd.replace('{senha}', botData.config.senha || '');
   
   return new Promise((resolve) => {
-    const delay = humanDelay(minDelay, maxDelay);
+    const delay = randomDelay(minDelay, maxDelay);
     setTimeout(() => {
       if (botData.bot && botData.bot.entity) {
         botData.bot.chat(finalCmd);
@@ -165,14 +152,17 @@ async function runAutoSequence(botId) {
   io.emit('botSequence', { id: botId, running: true });
 
   try {
-    await new Promise(r => setTimeout(r, humanDelay(5, 10)));
+    // Delay inicial de 15-30 segundos antes de começar os comandos
+    const initialDelay = randomDelay(15, 30);
+    console.log(`[${botData.config.nome}] ⏱️ Aguardando ${Math.round(initialDelay/1000)} segundos antes de iniciar comandos...`);
+    await new Promise(r => setTimeout(r, initialDelay));
     
     const commands = botData.config.commands || [];
     for (const cmd of commands) {
       if (cmd.enabled) {
         await sendCommand(botData, cmd.command, cmd.minDelay || 4, cmd.maxDelay || 10, `✅ Executando`);
         if (cmd.afterDelay > 0) {
-          await new Promise(r => setTimeout(r, humanDelay(cmd.afterDelay, cmd.afterDelayMax || cmd.afterDelay + 5)));
+          await new Promise(r => setTimeout(r, randomDelay(cmd.afterDelay, cmd.afterDelayMax || cmd.afterDelay + 5)));
         }
       }
     }
@@ -214,22 +204,10 @@ function createBot(botId) {
   botData.bot = bot;
 
   bot.on('resourcePack', (pack) => {
-      console.log(`[${botData.config.nome}] 📦 Resource pack detectado`);
-      try {
-          // Aceitar o resource pack
-          bot.acceptResourcePack();
-          
-          // Aguardar download (até 30 segundos)
-          setTimeout(() => {
-              console.log(`[${botData.config.nome}] ✅ Resource pack aceito`);
-          }, 3000);
-      } catch(e) {
-          console.log(`[${botData.config.nome}] ⚠️ Erro ao aceitar resource pack: ${e.message}`);
-          // Tentar alternativa
-          try {
-              bot.declineResourcePack();
-          } catch(e2) {}
-      }
+    console.log(`[${botData.config.nome}] 📦 Resource pack detectado`);
+    try {
+      bot.acceptResourcePack();
+    } catch(e) {}
   });
 
   bot.once('spawn', () => {
@@ -239,11 +217,12 @@ function createBot(botId) {
     bots.set(botId, botData);
     io.emit('botStatus', { id: botId, status: 'online', name: botData.config.nome });
     
-    setTimeout(() => {
-      if (botData.config.autoSequence && !botData.sequenceRunning) {
-        setTimeout(() => runAutoSequence(botId), humanDelay(8, 15));
-      }
-    }, 3000);
+    // Aguarda 15-30 segundos antes de iniciar a sequência automática
+    if (botData.config.autoSequence && !botData.sequenceRunning) {
+      const autoSequenceDelay = randomDelay(15, 30);
+      console.log(`[${botData.config.nome}] ⏱️ Sequência automática iniciará em ${Math.round(autoSequenceDelay/1000)} segundos`);
+      setTimeout(() => runAutoSequence(botId), autoSequenceDelay);
+    }
   });
 
   bot.on('kicked', (reason) => {
@@ -261,11 +240,13 @@ function createBot(botId) {
     io.emit('botStatus', { id: botId, status: 'kicked', name: botData.config.nome });
     
     if (botData.config.running && !botData.reconnectTimeout) {
-      const delay = humanDelay(90, 120);
+      // Reconexão aleatória entre 45-120 segundos
+      const reconnectDelay = randomDelay(45, 120);
+      console.log(`[${botData.config.nome}] 🔄 Tentará reconectar em ${Math.round(reconnectDelay/1000)} segundos`);
       botData.reconnectTimeout = setTimeout(() => {
         botData.reconnectTimeout = null;
         createBot(botId);
-      }, delay);
+      }, reconnectDelay);
     }
   });
 
@@ -276,11 +257,13 @@ function createBot(botId) {
     io.emit('botStatus', { id: botId, status: 'offline', name: botData.config.nome });
     
     if (botData.config.running && !botData.reconnectTimeout) {
-      const delay = humanDelay(45, 75);
+      // Reconexão aleatória entre 45-120 segundos
+      const reconnectDelay = randomDelay(45, 120);
+      console.log(`[${botData.config.nome}] 🔄 Tentará reconectar em ${Math.round(reconnectDelay/1000)} segundos`);
       botData.reconnectTimeout = setTimeout(() => {
         botData.reconnectTimeout = null;
         createBot(botId);
-      }, delay);
+      }, reconnectDelay);
     }
   });
 
@@ -404,7 +387,8 @@ app.post('/api/bot/:id/toggleAuto', (req, res) => {
   bots.set(req.params.id, botData);
   
   if (botData.config.autoSequence && botData.bot?.entity && !botData.sequenceRunning) {
-    setTimeout(() => runAutoSequence(req.params.id), humanDelay(8, 15));
+    const autoSequenceDelay = randomDelay(15, 30);
+    setTimeout(() => runAutoSequence(req.params.id), autoSequenceDelay);
   }
   
   res.json({ success: true, autoSequence: botData.config.autoSequence });
@@ -448,7 +432,7 @@ initializeBots();
 for (const [id, botData] of bots) {
   if (botData.config.running) {
     console.log(`🚀 Iniciando bot automático: ${botData.config.nome}`);
-    setTimeout(() => createBot(id), 2000);
+    setTimeout(() => createBot(id), randomDelay(2, 5));
   }
 }
 
@@ -456,5 +440,9 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`\n🌐 Servidor rodando na porta ${PORT}`);
   console.log(`📱 Dashboard: http://localhost:${PORT}`);
-  console.log(`🤖 Bots carregados: ${bots.size}\n`);
+  console.log(`🤖 Bots carregados: ${bots.size}`);
+  console.log(`⚙️ Configurações:`);
+  console.log(`   - Reconexão: entre 45-120 segundos (aleatório)`);
+  console.log(`   - Delay inicial: 15-30 segundos antes dos comandos`);
+  console.log(`   - Comandos: delays aleatórios por comando\n`);
 });
